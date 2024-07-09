@@ -114,7 +114,7 @@ const createTask = async(downloadInfo: LX.Download.ListItem, savePath: string, s
       console.log('on complate')
     },
     onError(err: any) {
-      console.log(err)
+      console.error(err)
       if (err.code == 'EPERM') {
         sendAction(downloadInfo.id, {
           action: 'error',
@@ -157,8 +157,9 @@ const createTask = async(downloadInfo: LX.Download.ListItem, savePath: string, s
         sendAction(downloadInfo.id, { action: 'refreshUrl' })
       } else {
         console.log('Download failed, Attempting Retry')
-        void dls.get(downloadInfo.id)?.start()
-        console.log('正在重试')
+        setTimeout(() => {
+          void dls.get(downloadInfo.id)?.start()
+        }, 1000)
       }
     },
     onFail(response) {
@@ -205,6 +206,7 @@ const createTask = async(downloadInfo: LX.Download.ListItem, savePath: string, s
       downloadInfo.downloaded = status.downloaded
       downloadInfo.progress = status.progress
       downloadInfo.speed = status.speed
+      downloadInfo.writeQueue = status.writeQueue
       sendAction(downloadInfo.id, { action: 'progress', data: status })
       // console.log(status)
     },

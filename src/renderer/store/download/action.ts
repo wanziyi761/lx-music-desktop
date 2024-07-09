@@ -82,10 +82,17 @@ const updateFilePath = (downloadInfo: LX.Download.ListItem, filePath: string) =>
 }
 
 const setProgress = (downloadInfo: LX.Download.ListItem, progress: LX.Download.ProgressInfo) => {
-  downloadInfo.progress = progress.progress
   downloadInfo.total = progress.total
   downloadInfo.downloaded = progress.downloaded
-  downloadInfo.speed = progress.speed
+  downloadInfo.writeQueue = progress.writeQueue
+  if (progress.progress == 100) {
+    downloadInfo.speed = ''
+    downloadInfo.progress = 99.99
+    setStatusText(downloadInfo, window.i18n.t('download_status_write_queue', { num: progress.writeQueue }))
+  } else {
+    downloadInfo.speed = progress.speed
+    downloadInfo.progress = progress.progress
+  }
   throttleUpdateTask([downloadInfo])
 }
 
@@ -185,7 +192,8 @@ const downloadLyric = (downloadInfo: LX.Download.ListItem) => {
         tlrc: appSetting['download.isDownloadTLrc'] && lrcs.tlyric ? lrcs.tlyric : null,
         rlrc: appSetting['download.isDownloadRLrc'] && lrcs.rlyric ? lrcs.rlyric : null,
       }
-      void window.lx.worker.download.saveLrc(lrcData, downloadInfo.metadata.filePath.replace(/(mp3|flac|ape|wav)$/, 'lrc'),
+      void window.lx.worker.download.saveLrc(lrcData,
+        downloadInfo.metadata.filePath.substring(0, downloadInfo.metadata.filePath.lastIndexOf('.')) + '.lrc',
         appSetting['download.lrcFormat'])
     }
   })
@@ -248,6 +256,7 @@ const handleStartTask = async(downloadInfo: LX.Download.ListItem) => {
         setStatus(downloadInfo, DOWNLOAD_STATUS.RUN)
         break
       case 'complete':
+        downloadInfo.progress = 100
         saveMeta(downloadInfo)
         downloadLyric(downloadInfo)
         void window.lx.worker.download.removeTask(downloadInfo.id)

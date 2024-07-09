@@ -1,4 +1,7 @@
-let audio: HTMLAudioElement | null = null
+interface HTMLAudioElementChrome extends HTMLAudioElement {
+  setSinkId: (id: string) => Promise<void>
+}
+let audio: HTMLAudioElementChrome | null = null
 let audioContext: AudioContext
 let mediaSource: MediaElementAudioSourceNode
 let analyser: AnalyserNode
@@ -51,12 +54,13 @@ let pitchShifterNode: AudioWorkletNode
 let pitchShifterNodePitchFactor: AudioParam
 let pitchShifterNodeLoadStatus: 'none' | 'loading' | 'unconnect' | 'connected' = 'none'
 let pitchShifterNodeTempValue = 1
+let defaultChannelCount = 2
 export const soundR = 0.5
 
 
 export const createAudio = () => {
   if (audio) return
-  audio = new window.Audio()
+  audio = new window.Audio() as HTMLAudioElementChrome
   audio.controls = false
   audio.autoplay = true
   audio.preload = 'auto'
@@ -82,7 +86,7 @@ const initBiquadFilter = () => {
   }
 
   for (i = 1; i < freqs.length; i++) {
-    (biquads.get(`hz${freqs[i - 1]}`) as BiquadFilterNode).connect(biquads.get(`hz${freqs[i]}`) as BiquadFilterNode)
+    (biquads.get(`hz${freqs[i - 1]}`)!).connect(biquads.get(`hz${freqs[i]}`)!)
   }
 }
 
@@ -108,6 +112,7 @@ const initAdvancedAudioFeatures = () => {
   if (audioContext) return
   if (!audio) throw new Error('audio not defined')
   audioContext = new window.AudioContext()
+  defaultChannelCount = audioContext.destination.channelCount
 
   initAnalyser()
   initBiquadFilter()
@@ -117,8 +122,8 @@ const initAdvancedAudioFeatures = () => {
   // source -> analyser -> biquadFilter -> [(convolver & convolverSource)->convolverDynamicsCompressor] -> panner -> gain
   mediaSource = audioContext.createMediaElementSource(audio)
   mediaSource.connect(analyser)
-  analyser.connect(biquads.get(`hz${freqs[0]}`) as BiquadFilterNode)
-  const lastBiquadFilter = (biquads.get(`hz${freqs.at(-1) as Freqs}`) as BiquadFilterNode)
+  analyser.connect(biquads.get(`hz${freqs[0]}`)!)
+  const lastBiquadFilter = (biquads.get(`hz${freqs.at(-1)!}`)!)
   lastBiquadFilter.connect(convolverSourceGainNode)
   lastBiquadFilter.connect(convolver)
   convolverDynamicsCompressor.connect(panner)
@@ -131,6 +136,32 @@ export const getAudioContext = () => {
   return audioContext
 }
 
+let unsubMediaListChangeEvent: (() => void) | null = null
+export const setMaxOutputChannelCount = (enable: boolean) => {
+  if (enable) {
+    initAdvancedAudioFeatures()
+    audioContext.destination.channelCount = audioContext.destination.maxChannelCount
+    audioContext.destination.channelCountMode = 'max'
+    // navigator.mediaDevices.addEventListener('devicechange', handleMediaListChange)
+    if (!unsubMediaListChangeEvent) {
+      let handleMediaListChange = () => {
+        setMaxOutputChannelCount(true)
+      }
+      window.app_event.on('playerDeviceChanged', handleMediaListChange)
+      unsubMediaListChangeEvent = () => {
+        window.app_event.off('playerDeviceChanged', handleMediaListChange)
+        unsubMediaListChangeEvent = null
+      }
+    }
+  } else {
+    unsubMediaListChangeEvent?.()
+    if (audioContext && audioContext.destination.channelCountMode != 'explicit') {
+      audioContext.destination.channelCount = defaultChannelCount
+      // audioContext.destination.channelInterpretation
+      audioContext.destination.channelCountMode = 'explicit'
+    }
+  }
+}
 
 export const getAnalyser = (): AnalyserNode | null => {
   initAdvancedAudioFeatures()
@@ -223,7 +254,7 @@ let isConnected = true
 const connectNode = () => {
   if (isConnected) return
   console.log('connect Node')
-  analyser?.connect(biquads.get(`hz${freqs[0]}`) as BiquadFilterNode)
+  analyser?.connect(biquads.get(`hz${freqs[0]}`)!)
   isConnected = true
   if (pitchShifterNodeTempValue == 1 && pitchShifterNodeLoadStatus == 'connected') {
     disconnectPitchShifterNode()
@@ -246,7 +277,7 @@ const connectPitchShifterNode = () => {
   audio!.addEventListener('emptied', disconnectNode)
   if (audio!.paused) disconnectNode()
 
-  const lastBiquadFilter = (biquads.get(`hz${freqs.at(-1) as Freqs}`) as BiquadFilterNode)
+  const lastBiquadFilter = (biquads.get(`hz${freqs.at(-1)!}`)!)
   lastBiquadFilter.disconnect()
   lastBiquadFilter.connect(pitchShifterNode)
 
@@ -260,7 +291,7 @@ const connectPitchShifterNode = () => {
 }
 const disconnectPitchShifterNode = () => {
   console.log('disconnect Pitch Shifter Node')
-  const lastBiquadFilter = (biquads.get(`hz${freqs.at(-1) as Freqs}`) as BiquadFilterNode)
+  const lastBiquadFilter = (biquads.get(`hz${freqs.at(-1)!}`)!)
   lastBiquadFilter.disconnect()
   lastBiquadFilter.connect(convolver)
   lastBiquadFilter.connect(convolverSourceGainNode)
@@ -372,9 +403,9 @@ export const setCurrentTime = (time: number) => {
   if (audio) audio.currentTime = time
 }
 
-export const setMediaDeviceId = (mediaDeviceId: string) => {
-  // @ts-expect-error
-  return audio ? audio.setSinkId(mediaDeviceId) : Promise.resolve()
+export const setMediaDeviceId = async(mediaDeviceId: string): Promise<void> => {
+  if (!audio) return
+  return audio.setSinkId(mediaDeviceId)
 }
 
 export const setVolume = (volume: number) => {
